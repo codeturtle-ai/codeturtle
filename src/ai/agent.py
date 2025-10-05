@@ -9,6 +9,8 @@ from .router import MultiAgentRouter
 from ..detection.ast_analyzer import ASTAnalyzer
 from ..clients.github_client import GitHubClient
 from ..utils.report_generator import generate_natural_language_report
+from .advanced_analyzer import AdvancedAIAnalyzer, AnalysisContext, AnalysisMode
+from ..scoring.risk_calculator import ProductionRiskCalculator, VulnerabilityFinding, PRComplexityMetrics, SeverityLevel
 from ..utils.scoring import RiskScorer
 
 logger = logging.getLogger(__name__)
@@ -20,6 +22,10 @@ class SecurityAgent:
         self.kb = FastAPISecurityKB()
         self.router = MultiAgentRouter(self)
         self.github_client = GitHubClient(github_token)
+        
+        # Initialize advanced components
+        self.advanced_analyzer = AdvancedAIAnalyzer(ai_client)
+        self.risk_calculator = ProductionRiskCalculator()
         self.risk_scorer = RiskScorer()  # Production-grade risk scoring
 
     async def fetch_pr_diff(self, pr_url: str) -> Dict[str, Any]:
