@@ -1,0 +1,23 @@
+name: fastapi-security-agent
+services:
+- name: web
+  source_dir: /
+  github:
+    repo: codeturtle-ai/codeturtle
+    branch: feature/phase-2-ai-agent
+    deploy_on_push: true
+  run_command: uvicorn src.main:app --host 0.0.0.0 --port 8080
+  environment_slug: python
+  instance_count: 1
+  instance_size_slug: basic-xxs
+  envs:
+  - key: GRADIENT_AI_API_KEY
+    type: SECRET
+    value: ${gradient_ai_api_key}
+  - key: GITHUB_TOKEN
+    type: SECRET
+    value: ${github_token}
+  health_check:
+    http_path: /health
+  routes:
+  - path: /

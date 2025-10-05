@@ -1,0 +1,49 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>FastAPI Security Agent</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 40px; }
+        form { margin-bottom: 20px; }
+        input, button { padding: 10px; margin: 5px; }
+        .result { margin-top: 20px; padding: 10px; border: 1px solid #ccc; }
+        .error { color: red; }
+        .success { color: green; }
+    </style>
+</head>
+<body>
+    <h1>FastAPI Security Agent</h1>
+    <p>Analyze GitHub PRs for security vulnerabilities using AI and static analysis.</p>
+    
+    <form action="/ui/analyze" method="post">
+        <label for="pr_url">GitHub PR URL:</label><br>
+        <input type="text" id="pr_url" name="pr_url" placeholder="https://github.com/user/repo/pull/123" required style="width: 400px;"><br>
+        <small>Demo: Try <a href="#" onclick="document.getElementById('pr_url').value='https://github.com/tiangolo/fastapi/pull/1'"></a>
+        <button type="submit">Analyze PR</button>
+    </form>s
+    
+    {% if result %}
+    <div class="result">
+        <h2>Analysis Result</h2>
+        {% if result.error %}
+        <p class="error">Error: {{ result.error }}</p>
+        {% else %}
+        <p><strong>PR URL:</strong> {{ result.pr_url }}</p>
+        <p><strong>Vulnerabilities:</strong> {{ result.vulnerabilities | join(', ') }}</p>
+        <p><strong>Risk Score:</strong> {{ result.risk_score }}</p>
+        <p><strong>Summary:</strong> {{ result.summary }}</p>
+        <p><strong>Recommendations:</strong></p>
+        <ul>
+            {% for rec in result.recommendations %}
+            <li>{{ rec }}</li>
+            {% endfor %}
+        </ul>
+        {% endif %}
+    </div>
+    {% endif %}
+    
+    <p><a href="/docs">API Documentation</a> | <a href="/report">View Report Summary</a></p>
+</body>
+</html>
