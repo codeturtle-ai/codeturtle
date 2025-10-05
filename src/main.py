@@ -1,17 +1,36 @@
 """
 FastAPI Security Agent - Main application entry point.
 
-This module adapts the existing Magnet POC for smaller-scale analysis
-(20-30 PRs) with enhanced error handling and AI integration.
+This module provides AI-powered vulnerability detection for FastAPI PRs
+with comprehensive security analysis, rate limiting, and production-ready features.
 """
 
 import asyncio
 import logging
+import re
+from datetime import datetime
 from typing import List, Optional
 
+from dotenv import load_dotenv
 import uvicorn
-from fastapi import FastAPI, HTTPException
-from pydantic import BaseModel
+from fastapi import FastAPI, HTTPException, Request, Form
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.templating import Jinja2Templates
+from fastapi.responses import JSONResponse
+from pydantic import BaseModel, validator
+from slowapi import Limiter, _rate_limit_exceeded_handler
+from slowapi.util import get_remote_address
+from slowapi.errors import RateLimitExceeded
+
+# Local modules
+from schemas.models import PRAnalysisRequest, VulnerabilityReport
+from schemas.config import config
+from clients.gradient_ai import GradientAIClient
+from ai.agent import SecurityAgent
+from utils.report_generator import generate_natural_language_report
+
+# Load environment variables securely
+load_dotenv()
 
 # Configure logging for production
 logging.basicConfig(
@@ -20,10 +39,7 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# Load environment variables securely
-from dotenv import load_dotenv
-
-load_dotenv()
+limiter = Limiter(key_func=get_remote_address, default_limits=["10/minute"])
 
 app = FastAPI(
     title="FastAPI Security Agent",
@@ -31,29 +47,89 @@ app = FastAPI(
     version="1.0.0",
 )
 
+# Configure CORS for frontend integration
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=[
+        "http://localhost:3000",              # Local Next.js development
+        "http://localhost:3001",              # Alternative local port
+        "https://*.vercel.app",               # Vercel deployments
+        "https://*.v0.app",                   # v0.dev deployments
+    ],
+    allow_credentials=True,
+    allow_methods=["*"],                      # Allow all HTTP methods
+    allow_headers=["*"],                      # Allow all headers
+)
 
-class PRAnalysisRequest(BaseModel):
-    """Request model for PR analysis."""
-    url: str
-    max_prs: int = 30  # Limit for performance
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+
+templates = Jinja2Templates(directory="templates")
+
+# Custom exception handlers
+@app.exception_handler(HTTPException)
+async def http_exception_handler(request: Request, exc: HTTPException):
+    return JSONResponse(
+        status_code=exc.status_code,
+        content={"error": exc.detail, "type": "http_exception"},
+    )
+
+@app.exception_handler(Exception)
+async def general_exception_handler(request: Request, exc: Exception):
+    logger.error(f"Unhandled exception: {str(exc)}", exc_info=True)
+    return JSONResponse(
+        status_code=500,
+        content={"error": "Internal server error", "type": "server_error"},
+    )
 
 
-class VulnerabilityReport(BaseModel):
-    """Response model for vulnerability reports."""
-    pr_url: str
-    vulnerabilities: List[str]
-    risk_score: float
-    recommendations: List[str]
+# Instantiate dependencies
+ai_client = GradientAIClient(api_key=config.gradient_api_key)
+security_agent = SecurityAgent(ai_client=ai_client, github_token=config.github_token)
 
 
 @app.get("/")
 async def root():
-    """Health check endpoint."""
-    return {"message": "FastAPI Security Agent is running"}
+    """Root endpoint with API info."""
+    return {
+        "message": "FastAPI Security Agent is running",
+        "version": "1.0.0",
+        "endpoints": {
+            "/analyze": "Analyze a single PR",
+            "/scan": "Batch analyze multiple PRs",
+            "/report": "Generate security report summary",
+            "/health": "Health check",
+            "/ui": "Web interface"
+        }
+    }
+
+@app.get("/ui")
+async def ui_home(request: Request):
+    """Render the web interface."""
+    return templates.TemplateResponse("index.html", {"request": request, "result": None})
+
+@app.post("/ui/analyze")
+async def ui_analyze(request: Request, pr_url: str = Form(...)):
+    """Handle UI form submission for PR analysis."""
+    try:
+        report = await security_agent.analyze_pull_request(pr_url)
+        return templates.TemplateResponse("index.html", {"request": request, "result": report.dict()})
+    except Exception as e:
+        return templates.TemplateResponse("index.html", {"request": request, "result": {"error": str(e)}})
+
+@app.get("/health")
+async def health_check() -> dict:
+    """Health check endpoint for load balancers and monitoring."""
+    return {
+        "status": "healthy",
+        "timestamp": datetime.now().isoformat() + "Z",
+        "version": "1.0.0"
+    }
 
 
 @app.post("/analyze", response_model=VulnerabilityReport)
-async def analyze_pr(request: PRAnalysisRequest):
+@limiter.limit("5/minute")
+async def analyze_pr(request: PRAnalysisRequest, request_obj: Request):
     """
     Analyze a GitHub PR for vulnerabilities.
 
@@ -61,35 +137,64 @@ async def analyze_pr(request: PRAnalysisRequest):
     error handling for production use.
     """
     try:
-        # Placeholder for GitHub API integration
-        # TODO: Integrate with actual GitHub API and Gradient AI
         logger.info(f"Analyzing PR: {request.url}")
-
-        # Simulate analysis (replace with real logic)
-        vulnerabilities = ["Potential SQL Injection", "Hardcoded Secret"]
-        risk_score = 0.8
-        recommendations = ["Use parameterized queries", "Store secrets in env vars"]
-
-        return VulnerabilityReport(
-            pr_url=request.url,
-            vulnerabilities=vulnerabilities,
-            risk_score=risk_score,
-            recommendations=recommendations,
-        )
+        report = await security_agent.analyze_pull_request(request.url)
+        return report
     except Exception as e:
         logger.error(f"Error analyzing PR {request.url}: {str(e)}")
         raise HTTPException(status_code=500, detail="Analysis failed")
 
 
 @app.post("/scan")
-async def scan_multiple_prs(urls: List[str]):
-    """Batch analyze multiple PRs."""
-    # TODO: Implement batch processing with concurrency limits
-    results = []
-    for url in urls[:30]:  # Limit for performance
-        # Placeholder for actual analysis
-        results.append({"url": url, "status": "analyzed"})
-    return {"results": results}
+@limiter.limit("2/minute")
+async def scan_multiple_prs(request_obj: Request, urls: List[str]):
+    """Batch analyze multiple PRs with concurrency."""
+    from asyncio import gather, Semaphore
+
+    semaphore = Semaphore(5)  # Limit concurrent requests
+    limited_urls = urls[:30]  # Limit total PRs
+
+    async def analyze_limited(url: str):
+        async with semaphore:
+            return await security_agent.analyze_pull_request(url)
+
+    results = await gather(*[analyze_limited(url) for url in limited_urls], return_exceptions=True)
+    return {
+        "results": [
+            {
+                "url": url,
+                "report": result.dict() if not isinstance(result, Exception) else {"error": str(result)},
+            }
+            for url, result in zip(limited_urls, results)
+        ]
+    }
+
+@app.get("/report")
+async def get_security_report(pr_url: str | None = None):
+    """Generate a security report summary. If PR URL provided, analyze it."""
+    if pr_url:
+        report = await security_agent.analyze_pull_request(pr_url)
+        return {
+            "type": "detailed",
+            "pr_url": pr_url,
+            "report": report.dict(),
+            "generated_at": "2025-10-05T12:00:00Z"  # Placeholder
+        }
+    else:
+        # Demo summary report
+        return {
+            "type": "summary",
+            "total_analyses": 42,  # Placeholder
+            "vulnerabilities_found": 15,
+            "most_common": ["sql_injection", "hardcoded_secret"],
+            "average_risk_score": 0.65,
+            "recommendations": [
+                "Implement parameterized queries",
+                "Use environment variables for secrets",
+                "Add authentication to endpoints"
+            ],
+            "generated_at": "2025-10-05T12:00:00Z"
+        }
 
 
 if __name__ == "__main__":
