@@ -40,7 +40,7 @@ app = FastAPI(
 
 # Instantiate dependencies
 ai_client = GradientAIClient(api_key=config.gradient_api_key)
-security_agent = SecurityAgent(ai_client=ai_client)
+security_agent = SecurityAgent(ai_client=ai_client, github_token=config.github_token)
 
 
 @app.get("/")
@@ -68,13 +68,26 @@ async def analyze_pr(request: PRAnalysisRequest):
 
 @app.post("/scan")
 async def scan_multiple_prs(urls: List[str]):
-    """Batch analyze multiple PRs."""
-    # TODO: Implement batch processing with concurrency limits
-    results = []
-    for url in urls[:30]:  # Limit for performance
-        # Placeholder for actual analysis
-        results.append({"url": url, "status": "analyzed"})
-    return {"results": results}
+    """Batch analyze multiple PRs with concurrency."""
+    from asyncio import gather, Semaphore
+
+    semaphore = Semaphore(5)  # Limit concurrent requests
+    limited_urls = urls[:30]  # Limit total PRs
+
+    async def analyze_limited(url: str):
+        async with semaphore:
+            return await security_agent.analyze_pull_request(url)
+
+    results = await gather(*[analyze_limited(url) for url in limited_urls], return_exceptions=True)
+    return {
+        "results": [
+            {
+                "url": url,
+                "report": result.dict() if not isinstance(result, Exception) else {"error": str(result)},
+            }
+            for url, result in zip(limited_urls, results)
+        ]
+    }
 
 
 if __name__ == "__main__":

@@ -6,6 +6,7 @@ requests==2.31.0
 beautifulsoup4==4.12.2
 lxml==4.9.3
 pytest==7.4.3
+pytest-asyncio==0.21.1
 httpx==0.25.2  # For async HTTP requests
 tenacity==8.2.3  # For retries
 pylint==3.0.2
