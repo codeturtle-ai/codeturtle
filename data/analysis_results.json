@@ -1,0 +1,35 @@
+[
+  {
+    "pr_url": "https://github.com/tiangolo/fastapi/pull/1",
+    "report": {
+      "pr_url": "https://github.com/tiangolo/fastapi/pull/1",
+      "vulnerabilities": ["sql_injection", "hardcoded_secret"],
+      "risk_score": 0.75,
+      "recommendations": ["Use parameterized queries", "Store secrets in environment variables"],
+      "summary": "Analysis complete. Risk score: 0.75. Found 2 vulnerabilities."
+    },
+    "success": true
+  },
+  {
+    "pr_url": "https://github.com/tiangolo/fastapi/pull/2",
+    "report": {
+      "pr_url": "https://github.com/tiangolo/fastapi/pull/2",
+      "vulnerabilities": ["missing_auth"],
+      "risk_score": 0.45,
+      "recommendations": ["Implement proper authentication"],
+      "summary": "Analysis complete. Risk score: 0.45. Found 1 vulnerabilities."
+    },
+    "success": true
+  },
+  {
+    "pr_url": "https://github.com/tiangolo/fastapi/pull/3",
+    "report": {
+      "pr_url": "https://github.com/tiangolo/fastapi/pull/3",
+      "vulnerabilities": [],
+      "risk_score": 0.1,
+      "recommendations": ["Code appears secure"],
+      "summary": "Analysis complete. Risk score: 0.1. Found 0 vulnerabilities."
+    },
+    "success": true
+  }
+]
