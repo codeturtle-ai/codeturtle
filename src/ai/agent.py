@@ -47,83 +47,339 @@ class SecurityAgent:
                 "error": str(e)
             }
 
-    async def analyze_pull_request(self, pr_url: str) -> VulnerabilityReport:
-        """Analyze PR with hybrid AST + AI + RAG detection."""
+    async def analyze_pull_request(self, pr_url: str, analysis_mode: AnalysisMode = AnalysisMode.COMPREHENSIVE) -> VulnerabilityReport:
+        """Analyze PR with advanced multi-layer detection and production-grade scoring."""
         try:
-            # Function calling: Fetch comprehensive PR content
+            logger.info(f"Starting advanced analysis for PR: {pr_url}")
+            
+            # 1. Fetch comprehensive PR content
             pr_data = await self.fetch_pr_diff(pr_url)
             code_snippet = pr_data.get("combined_code", "")
             metadata = pr_data.get("metadata", {})
             
             if not code_snippet.strip():
                 logger.warning(f"No analyzable code found in PR: {pr_url}")
-                return VulnerabilityReport(
-                    pr_url=pr_url,
-                    vulnerabilities=["no_code_found"],
-                    risk_score=0.0,
-                    recommendations=["No analyzable code changes found in this PR"],
-                    summary=f"PR '{metadata.get('title', 'Unknown')}' contains no analyzable code changes"
-                )
+                return self._create_empty_analysis_report(pr_url, metadata)
 
-            # AST Analysis: Static detection
-            ast_analyzer = ASTAnalyzer()
-            ast_findings = ast_analyzer.analyze_code(code_snippet)
-
-            # RAG: Retrieve relevant knowledge based on code + AST findings
-            query = code_snippet[:1000] + " " + " ".join([f["vulnerability"] for f in ast_findings])  # Limit query size
-            kb_context = self.kb.retrieve(query)
-            
-            # Enhanced AI analysis with context
-            enhanced_input = self._create_enhanced_prompt(code_snippet, ast_findings, kb_context, metadata)
-            ai_result = await self.ai_client.analyze_code(enhanced_input)
-
-            # Production-grade risk scoring using dedicated scorer
-            ai_confidence = float(ai_result.get("confidence", 0.0))
-            kb_matches = len(kb_context)
-            scoring_result = self.risk_scorer.calculate_risk_score(ast_findings, ai_confidence, kb_matches)
-            risk_score = scoring_result["risk_score"]
-            
-            logger.info(f"Risk scoring breakdown for {pr_url}: {scoring_result}")
-
-            # Combine and deduplicate vulnerabilities
-            all_vulnerabilities = self._combine_vulnerabilities(ai_result, ast_findings, kb_context)
-
-            # Generate comprehensive recommendations using scorer
-            recommendations = self.risk_scorer.get_recommendations(ast_findings, risk_score)
-            # Add AI recommendations
-            recommendations.extend(ai_result.get("recommendations", []))
-            # Deduplicate
-            recommendations = list(dict.fromkeys(recommendations))[:10]  # Keep top 10 unique
-
-            # Generate natural language summary
-            summary = generate_natural_language_report(
-                list(all_vulnerabilities), 
-                risk_score, 
-                recommendations
+            # 2. Create analysis context
+            analysis_context = AnalysisContext(
+                code_snippet=code_snippet,
+                file_path=pr_data.get("files", [{}])[0].get("filename") if pr_data.get("files") else None,
+                pr_title=metadata.get("title"),
+                pr_description=metadata.get("body"),
+                author=metadata.get("author"),
+                target_branch=metadata.get("base_branch"),
+                framework_info={"type": "FastAPI", "language": "Python"}
             )
 
-            return VulnerabilityReport(
-                pr_url=pr_url,
-                vulnerabilities=list(all_vulnerabilities),
-                risk_score=round(risk_score, 2),
-                recommendations=recommendations,
-                summary=summary
+            # 3. Multi-layer analysis pipeline
+            analysis_results = await self._run_comprehensive_analysis(
+                analysis_context, pr_data, analysis_mode
+            )
+
+            # 4. Advanced risk calculation
+            risk_assessment = await self._calculate_production_risk_score(
+                analysis_results, pr_data, metadata
+            )
+
+            # 5. Generate comprehensive report
+            return self._generate_comprehensive_report(
+                pr_url, analysis_results, risk_assessment, metadata
             )
             
         except Exception as e:
-            logger.error(f"Error analyzing PR {pr_url}: {str(e)}")
-            # Enhanced fallback with error details
+            logger.error(f"Error in advanced PR analysis {pr_url}: {str(e)}")
+            return self._create_error_report(pr_url, str(e))
+    
+    async def _run_comprehensive_analysis(
+        self, 
+        context: AnalysisContext, 
+        pr_data: Dict[str, Any],
+        mode: AnalysisMode
+    ) -> Dict[str, Any]:
+        """Run comprehensive multi-layer analysis."""
+        
+        results = {
+            "ast_findings": [],
+            "ai_analysis": None,
+            "kb_context": [],
+            "agent_results": {},
+            "metadata": {}
+        }
+        
+        try:
+            # Layer 1: AST Static Analysis
+            logger.info("Running AST analysis...")
+            ast_analyzer = ASTAnalyzer()
+            ast_findings = ast_analyzer.analyze_code(context.code_snippet)
+            results["ast_findings"] = ast_findings
+            
+            # Layer 2: Advanced AI Analysis
+            logger.info(f"Running advanced AI analysis in {mode.value} mode...")
+            ai_analysis = await self.advanced_analyzer.analyze_code(context, mode)
+            results["ai_analysis"] = ai_analysis
+            
+            # Layer 3: Knowledge Base Retrieval
+            logger.info("Querying knowledge base...")
+            query = context.code_snippet[:1000] + " " + " ".join([f["vulnerability"] for f in ast_findings])
+            kb_context = self.kb.retrieve(query)
+            results["kb_context"] = kb_context
+            
+            # Layer 4: Multi-Agent Specialized Analysis
+            logger.info("Running multi-agent analysis...")
+            detected_vulns = list(set(
+                [f["vulnerability"] for f in ast_findings] +
+                [v.get("type", "") for v in ai_analysis.vulnerabilities]
+            ))
+            
+            if detected_vulns:
+                agent_results = await self.router.route_analysis(context.code_snippet, detected_vulns)
+                results["agent_results"] = agent_results
+            
+            results["metadata"] = {
+                "analysis_mode": mode.value,
+                "total_ast_findings": len(ast_findings),
+                "total_ai_vulnerabilities": len(ai_analysis.vulnerabilities),
+                "kb_matches": len(kb_context),
+                "agent_analyses": len(results["agent_results"]),
+                "analysis_timestamp": "2025-01-01T00:00:00Z"  # Would use actual timestamp
+            }
+            
+            logger.info(f"Analysis complete: {results['metadata']}")
+            return results
+            
+        except Exception as e:
+            logger.error(f"Error in comprehensive analysis: {str(e)}")
+            results["error"] = str(e)
+            return results
+    
+    async def _calculate_production_risk_score(
+        self, 
+        analysis_results: Dict[str, Any], 
+        pr_data: Dict[str, Any],
+        metadata: Dict[str, Any]
+    ) -> Dict[str, Any]:
+        """Calculate production-grade risk score."""
+        
+        try:
+            # Convert analysis results to structured findings
+            findings = self._convert_to_vulnerability_findings(analysis_results)
+            
+            # Create PR complexity metrics
+            pr_metrics = PRComplexityMetrics(
+                total_additions=pr_data.get("total_additions", 0),
+                total_deletions=pr_data.get("total_deletions", 0),
+                changed_files=pr_data.get("total_files", 0),
+                analyzable_files=pr_data.get("analyzable_files", 0),
+                max_file_size=max([len(f.get("patch", "")) for f in pr_data.get("files", [])], default=0),
+                avg_file_size=sum([len(f.get("patch", "")) for f in pr_data.get("files", [])]) / max(len(pr_data.get("files", [])), 1),
+                has_config_changes=any("config" in f.get("filename", "").lower() for f in pr_data.get("files", [])),
+                has_dependency_changes=any("requirements" in f.get("filename", "").lower() or "setup.py" in f.get("filename", "").lower() for f in pr_data.get("files", [])),
+                touches_security_files=any("security" in f.get("filename", "").lower() or "auth" in f.get("filename", "").lower() for f in pr_data.get("files", []))
+            )
+            
+            # Get AI confidence
+            ai_confidence = analysis_results.get("ai_analysis", {}).confidence if hasattr(analysis_results.get("ai_analysis", {}), 'confidence') else 0.5
+            
+            # Create context for risk calculation
+            risk_context = {
+                "author_reputation": "unknown",  # Could be enhanced with GitHub API data
+                "repo_security_score": 0.5,     # Could be calculated from repo history
+                "target_branch": metadata.get("base_branch", "main"),
+                "recent_vulnerabilities": 0,     # Could be tracked over time
+                "days_since_security_review": 30 # Could be calculated from commit history
+            }
+            
+            # Calculate comprehensive risk score
+            risk_assessment = self.risk_calculator.calculate_risk_score(
+                findings=findings,
+                pr_metrics=pr_metrics,
+                ai_confidence=ai_confidence,
+                context=risk_context
+            )
+            
+            logger.info(f"Risk assessment complete: {risk_assessment['risk_category']} ({risk_assessment['risk_score']})")
+            return risk_assessment
+            
+        except Exception as e:
+            logger.error(f"Error calculating production risk score: {str(e)}")
+            return {
+                "risk_score": 0.5,
+                "risk_category": "UNKNOWN",
+                "confidence": 0.3,
+                "error": str(e),
+                "breakdown": {"error": "Risk calculation failed"},
+                "recommendations": ["Manual risk assessment required"],
+                "metadata": {"calculation_method": "fallback"}
+            }
+    
+    def _convert_to_vulnerability_findings(self, analysis_results: Dict[str, Any]) -> List[VulnerabilityFinding]:
+        """Convert analysis results to structured vulnerability findings."""
+        
+        findings = []
+        
+        # Convert AST findings
+        for ast_finding in analysis_results.get("ast_findings", []):
+            severity_map = {
+                "critical": SeverityLevel.CRITICAL,
+                "high": SeverityLevel.HIGH,
+                "medium": SeverityLevel.MEDIUM,
+                "low": SeverityLevel.LOW
+            }
+            
+            findings.append(VulnerabilityFinding(
+                type=ast_finding.get("vulnerability", "unknown"),
+                severity=severity_map.get(ast_finding.get("severity", "medium"), SeverityLevel.MEDIUM),
+                confidence=float(ast_finding.get("confidence", 0.5)),
+                source="ast",
+                description=ast_finding.get("description", "AST analysis finding")
+            ))
+        
+        # Convert AI findings
+        ai_analysis = analysis_results.get("ai_analysis")
+        if ai_analysis and hasattr(ai_analysis, 'vulnerabilities'):
+            for ai_vuln in ai_analysis.vulnerabilities:
+                severity_map = {
+                    "CRITICAL": SeverityLevel.CRITICAL,
+                    "HIGH": SeverityLevel.HIGH,
+                    "MEDIUM": SeverityLevel.MEDIUM,
+                    "LOW": SeverityLevel.LOW,
+                    "INFO": SeverityLevel.INFO
+                }
+                
+                findings.append(VulnerabilityFinding(
+                    type=ai_vuln.get("type", "unknown"),
+                    severity=severity_map.get(ai_vuln.get("severity", "MEDIUM"), SeverityLevel.MEDIUM),
+                    confidence=float(ai_vuln.get("confidence", 0.5)),
+                    source="ai",
+                    description=ai_vuln.get("description", "AI analysis finding"),
+                    cwe_id=ai_vuln.get("cwe_id")
+                ))
+        
+        # Convert agent findings
+        for agent_type, agent_result in analysis_results.get("agent_results", {}).items():
+            if isinstance(agent_result, dict) and agent_result.get("confidence", 0) > 0:
+                findings.append(VulnerabilityFinding(
+                    type=agent_type,
+                    severity=SeverityLevel.MEDIUM,  # Default for agent findings
+                    confidence=float(agent_result.get("confidence", 0.5)),
+                    source="agent",
+                    description=f"Multi-agent analysis: {agent_result.get('specialized', 'Unknown')}"
+                ))
+        
+        return findings
+    
+    def _generate_comprehensive_report(
+        self, 
+        pr_url: str, 
+        analysis_results: Dict[str, Any], 
+        risk_assessment: Dict[str, Any],
+        metadata: Dict[str, Any]
+    ) -> VulnerabilityReport:
+        """Generate comprehensive vulnerability report."""
+        
+        # Combine all vulnerabilities
+        all_vulnerabilities = set()
+        
+        # Add AST vulnerabilities
+        for finding in analysis_results.get("ast_findings", []):
+            all_vulnerabilities.add(finding.get("vulnerability", "unknown"))
+        
+        # Add AI vulnerabilities
+        ai_analysis = analysis_results.get("ai_analysis")
+        if ai_analysis and hasattr(ai_analysis, 'vulnerabilities'):
+            for vuln in ai_analysis.vulnerabilities:
+                all_vulnerabilities.add(vuln.get("type", "unknown"))
+        
+        # Add agent vulnerabilities
+        for agent_type in analysis_results.get("agent_results", {}).keys():
+            all_vulnerabilities.add(agent_type)
+        
+        # Remove generic entries
+        all_vulnerabilities.discard("unknown")
+        all_vulnerabilities.discard("analysis_error")
+        
+        # Get recommendations from risk assessment
+        recommendations = risk_assessment.get("recommendations", [])
+        
+        # Add AI recommendations if available
+        if ai_analysis and hasattr(ai_analysis, 'recommendations'):
+            recommendations.extend(ai_analysis.recommendations[:3])  # Add top 3 AI recommendations
+        
+        # Generate enhanced summary
+        summary = self._generate_enhanced_summary(
+            list(all_vulnerabilities),
+            risk_assessment["risk_score"],
+            risk_assessment["risk_category"],
+            recommendations,
+            metadata
+        )
+        
         return VulnerabilityReport(
             pr_url=pr_url,
-                vulnerabilities=["analysis_error"],
-                risk_score=0.0,
-                recommendations=[
-                    f"Analysis failed: {str(e)}",
-                    "Check PR URL format and API keys",
-                    "Ensure repository is public or token has access"
-                ],
-                summary=f"Analysis failed due to: {str(e)}"
-            )
+            vulnerabilities=list(all_vulnerabilities),
+            risk_score=risk_assessment["risk_score"],
+            recommendations=recommendations[:8],  # Limit to 8 recommendations
+            summary=summary
+        )
+    
+    def _generate_enhanced_summary(
+        self, 
+        vulnerabilities: List[str], 
+        risk_score: float, 
+        risk_category: str,
+        recommendations: List[str],
+        metadata: Dict[str, Any]
+    ) -> str:
+        """Generate enhanced natural language summary."""
+        
+        vuln_count = len([v for v in vulnerabilities if v != "analysis_error"])
+        
+        if vuln_count == 0:
+            return f"✅ Security Analysis Complete: No significant vulnerabilities detected in PR '{metadata.get('title', 'Unknown')}' (Risk Score: {risk_score:.2f}/{risk_category}). The code changes appear secure based on comprehensive multi-layer analysis."
+        
+        vuln_summary = f"🔍 Detected {vuln_count} potential vulnerability type(s): {', '.join(vulnerabilities[:3])}{'...' if len(vulnerabilities) > 3 else ''}."
+        
+        risk_emoji = {
+            "CRITICAL": "🚨",
+            "HIGH": "⚠️",
+            "MEDIUM": "📋",
+            "LOW": "ℹ️",
+            "MINIMAL": "✅"
+        }.get(risk_category, "❓")
+        
+        risk_desc = f"{risk_emoji} Overall Risk Assessment: {risk_score:.2f} ({risk_category})"
+        
+        rec_summary = f"💡 Key Recommendations: {'; '.join(recommendations[:2])}{'...' if len(recommendations) > 2 else '.'}"
+        
+        analysis_info = f"🔬 Analysis: Multi-layer detection using AST, AI, Knowledge Base, and Specialized Agents."
+        
+        return f"{vuln_summary} {risk_desc} {rec_summary} {analysis_info}"
+    
+    def _create_empty_analysis_report(self, pr_url: str, metadata: Dict[str, Any]) -> VulnerabilityReport:
+        """Create report for PRs with no analyzable code."""
+        return VulnerabilityReport(
+            pr_url=pr_url,
+            vulnerabilities=["no_code_found"],
+            risk_score=0.0,
+            recommendations=["No analyzable code changes found in this PR"],
+            summary=f"📄 PR '{metadata.get('title', 'Unknown')}' contains no analyzable code changes. This may be a documentation-only or configuration change."
+        )
+    
+    def _create_error_report(self, pr_url: str, error_msg: str) -> VulnerabilityReport:
+        """Create error report when analysis fails."""
+        return VulnerabilityReport(
+            pr_url=pr_url,
+            vulnerabilities=["analysis_error"],
+            risk_score=0.0,
+            recommendations=[
+                f"❌ Analysis failed: {error_msg}",
+                "🔧 Check PR URL format and API keys",
+                "🔍 Ensure repository is accessible",
+                "📞 Contact support if issue persists"
+            ],
+            summary=f"❌ Advanced analysis failed for PR: {error_msg}. Manual security review recommended."
+        )
     
     def _create_enhanced_prompt(self, code: str, ast_findings: List[Dict], kb_context: List[Dict], metadata: Dict) -> str:
         """Create enhanced prompt with all available context."""
