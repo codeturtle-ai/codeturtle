@@ -18,12 +18,24 @@ Transform an existing Magnet POC into a compelling, AI-powered open-source proje
 
 ## 🏗️ Architecture Overview
 
-The system follows a multi-layered architecture combining static analysis with AI-powered detection:
-
-1. **Input Layer**: GitHub PR analysis and code ingestion
-2. **AI Processing Layer**: DigitalOcean Gradient AI Platform integration
-3. **Analysis Engine**: Combined static and dynamic vulnerability detection
-4. **Output Layer**: Risk scoring and remediation suggestions
+```mermaid
+flowchart TD
+    A[GitHub PR] --> B[FastAPI Security Agent]
+    B --> C[DigitalOcean Gradient AI Platform]
+    C --> D[Vulnerability Analysis]
+    D --> E[AST Parser]
+    D --> F[AI Agent Router]
+    F --> G[SSTI Detection Agent]
+    F --> H[SQL Injection Agent]
+    F --> I[Secret Detection Agent]
+    E --> J[Static Analysis Engine]
+    J --> K[Risk Scoring]
+    G --> K
+    H --> K
+    I --> K
+    K --> L[Vulnerability Report]
+    L --> M[Remediation Suggestions]
+```
 
 ## 🔧 Technical Stack
 

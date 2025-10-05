@@ -18,6 +18,7 @@ from schemas.models import PRAnalysisRequest, VulnerabilityReport
 from schemas.config import config
 from clients.gradient_ai import GradientAIClient
 from ai.agent import SecurityAgent
+from utils.report_generator import generate_natural_language_report
 
 # Configure logging for production
 logging.basicConfig(
