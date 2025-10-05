@@ -13,6 +13,12 @@ import uvicorn
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 
+# Local modules
+from schemas.models import PRAnalysisRequest, VulnerabilityReport
+from schemas.config import config
+from clients.gradient_ai import GradientAIClient
+from ai.agent import SecurityAgent
+
 # Configure logging for production
 logging.basicConfig(
     level=logging.INFO,
@@ -32,18 +38,9 @@ app = FastAPI(
 )
 
 
-class PRAnalysisRequest(BaseModel):
-    """Request model for PR analysis."""
-    url: str
-    max_prs: int = 30  # Limit for performance
-
-
-class VulnerabilityReport(BaseModel):
-    """Response model for vulnerability reports."""
-    pr_url: str
-    vulnerabilities: List[str]
-    risk_score: float
-    recommendations: List[str]
+# Instantiate dependencies
+ai_client = GradientAIClient(api_key=config.gradient_api_key)
+security_agent = SecurityAgent(ai_client=ai_client)
 
 
 @app.get("/")
@@ -61,21 +58,9 @@ async def analyze_pr(request: PRAnalysisRequest):
     error handling for production use.
     """
     try:
-        # Placeholder for GitHub API integration
-        # TODO: Integrate with actual GitHub API and Gradient AI
         logger.info(f"Analyzing PR: {request.url}")
-
-        # Simulate analysis (replace with real logic)
-        vulnerabilities = ["Potential SQL Injection", "Hardcoded Secret"]
-        risk_score = 0.8
-        recommendations = ["Use parameterized queries", "Store secrets in env vars"]
-
-        return VulnerabilityReport(
-            pr_url=request.url,
-            vulnerabilities=vulnerabilities,
-            risk_score=risk_score,
-            recommendations=recommendations,
-        )
+        report = await security_agent.analyze_pull_request(request.url)
+        return report
     except Exception as e:
         logger.error(f"Error analyzing PR {request.url}: {str(e)}")
         raise HTTPException(status_code=500, detail="Analysis failed")
