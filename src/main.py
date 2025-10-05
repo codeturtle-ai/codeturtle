@@ -1,22 +1,25 @@
 """
 FastAPI Security Agent - Main application entry point.
 
-This module adapts the existing Magnet POC for smaller-scale analysis
-(20-30 PRs) with enhanced error handling and AI integration.
+This module provides AI-powered vulnerability detection for FastAPI PRs
+with comprehensive security analysis, rate limiting, and production-ready features.
 """
 
 import asyncio
 import logging
+import re
+from datetime import datetime
 from typing import List, Optional
 
+from dotenv import load_dotenv
 import uvicorn
 from fastapi import FastAPI, HTTPException, Request, Form
 from fastapi.templating import Jinja2Templates
 from fastapi.responses import JSONResponse
+from pydantic import BaseModel, validator
 from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
-from pydantic import BaseModel
 
 # Local modules
 from schemas.models import PRAnalysisRequest, VulnerabilityReport
@@ -25,17 +28,15 @@ from clients.gradient_ai import GradientAIClient
 from ai.agent import SecurityAgent
 from utils.report_generator import generate_natural_language_report
 
+# Load environment variables securely
+load_dotenv()
+
 # Configure logging for production
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
 )
 logger = logging.getLogger(__name__)
-
-# Load environment variables securely
-from dotenv import load_dotenv
-
-load_dotenv()
 
 limiter = Limiter(key_func=get_remote_address, default_limits=["10/minute"])
 
@@ -102,11 +103,11 @@ async def ui_analyze(request: Request, pr_url: str = Form(...)):
         return templates.TemplateResponse("index.html", {"request": request, "result": {"error": str(e)}})
 
 @app.get("/health")
-async def health_check():
+async def health_check() -> dict:
     """Health check endpoint for load balancers and monitoring."""
     return {
         "status": "healthy",
-        "timestamp": "2025-10-05T12:00:00Z",  # Placeholder; use datetime in prod
+        "timestamp": datetime.now().isoformat() + "Z",
         "version": "1.0.0"
     }
 
