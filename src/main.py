@@ -14,6 +14,7 @@ from typing import List, Optional
 from dotenv import load_dotenv
 import uvicorn
 from fastapi import FastAPI, HTTPException, Request, Form
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.templating import Jinja2Templates
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, validator
@@ -44,6 +45,20 @@ app = FastAPI(
     title="FastAPI Security Agent",
     description="AI-powered vulnerability detection for FastAPI PRs",
     version="1.0.0",
+)
+
+# Configure CORS for frontend integration
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=[
+        "http://localhost:3000",              # Local Next.js development
+        "http://localhost:3001",              # Alternative local port
+        "https://*.vercel.app",               # Vercel deployments
+        "https://*.v0.app",                   # v0.dev deployments
+    ],
+    allow_credentials=True,
+    allow_methods=["*"],                      # Allow all HTTP methods
+    allow_headers=["*"],                      # Allow all headers
 )
 
 app.state.limiter = limiter
