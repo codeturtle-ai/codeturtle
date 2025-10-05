@@ -1,0 +1,27 @@
+{
+  "version": 2,
+  "builds": [
+    {
+      "src": "src/main.py",
+      "use": "@vercel/python",
+      "config": {
+        "maxLambdaSize": "15mb"
+      }
+    }
+  ],
+  "routes": [
+    {
+      "src": "/(.*)",
+      "dest": "src/main.py"
+    }
+  ],
+  "env": {
+    "GRADIENT_AI_API_KEY": "@gradient_ai_api_key",
+    "GITHUB_TOKEN": "@github_token"
+  },
+  "functions": {
+    "src/main.py": {
+      "maxDuration": 30
+    }
+  }
+}
